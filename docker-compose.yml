@@ -1,0 +1,26 @@
+version: "3.10"
+
+services:
+  auth_service:
+    image: hientrn/cloud-comp-auth:latest
+    build:
+      context: ./
+      dockerfile: ./Dockerfile
+      platforms:
+        - linux/amd64
+      args:
+        - MYSQL_USER=${MYSQL_USER}
+        - MYSQL_PW=${MYSQL_PW}
+        - MYSQL_HOST=${MYSQL_HOST}
+        - MYSQL_DB=${MYSQL_DB}
+        - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    ports:
+      - "5002:5002"
+    environment:
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PW=${MYSQL_PW}
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_DB=${MYSQL_DB}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    # bridge - connect to docker container from localhost
+    network_mode: bridge
