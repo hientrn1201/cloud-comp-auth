@@ -110,3 +110,57 @@ def get_user_by_id(user_id):
         'username': user[1],
         'email': user[2]
     }
+
+
+def get_all_users():
+    """
+    Fetches all users from the database.
+
+    Returns:
+    A list of dictionaries containing user information.
+    """
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT * FROM users")
+    users = cur.fetchall()
+    cur.close()
+
+    return [
+        {
+            'user_id': user[0],
+            'username': user[1],
+            'email': user[2]
+        } for user in users
+    ]
+
+
+def update_user_in_db(user_id, username=None, email=None):
+    cur = mysql.connection.cursor()
+    updates = []
+    params = []
+
+    if username:
+        updates.append("username = %s")
+        params.append(username)
+    if email:
+        updates.append("email = %s")
+        params.append(email)
+
+    if not updates:
+        return {'error': 'No fields to update'}
+
+    params.append(user_id)
+    query = f"UPDATE users SET {', '.join(updates)} WHERE user_id = %s"
+    cur.execute(query, tuple(params))
+    mysql.connection.commit()
+    cur.close()
+
+    return {'message': 'User updated successfully!'}
+
+
+def delete_user_from_db(user_id):
+    cur = mysql.connection.cursor()
+    cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+    mysql.connection.commit()
+    cur.close()
+
+    return {'message': 'User deleted successfully!'}
