@@ -87,22 +87,29 @@ def get_users():
     return jsonify(users), 200
 
 
-@app.route('/api/users/<int:user_id>', methods=['GET'])
-def get_user(user_id):
+@app.route('/api/user', methods=['GET'])
+def get_user():
+    # Use query parameter for user_id instead of path parameter
+    user_id = request.args.get('user_id', type=int)
+    if not user_id:
+        return jsonify({'message': 'Missing user_id parameter'}), 400
+
     user = get_user_by_id(user_id)
     if user is None:
         return jsonify({'message': 'User not found'}), 404
     return jsonify(user), 200
 
 
-@app.route('/api/users/<int:user_id>', methods=['PUT'])
-def update_user(user_id):
+@app.route('/api/users', methods=['PUT'])
+def update_user():
+    # Use body request for updating user
     data = request.get_json()
+    user_id = data.get('user_id')
     username = data.get('username')
     email = data.get('email')
 
-    if not username and not email:
-        return jsonify({'message': 'No data provided to update'}), 400
+    if not user_id or (not username and not email):
+        return jsonify({'message': 'Missing data'}), 400
 
     result = update_user_in_db(user_id, username, email)
     if 'error' in result:
@@ -111,8 +118,13 @@ def update_user(user_id):
     return jsonify({'message': 'User updated successfully!'}), 200
 
 
-@app.route('/api/users/<int:user_id>', methods=['DELETE'])
-def delete_user(user_id):
+@app.route('/api/users', methods=['DELETE'])
+def delete_user():
+    # Use query parameter for user_id instead of path parameter
+    user_id = request.args.get('user_id', type=int)
+    if not user_id:
+        return jsonify({'message': 'Missing user_id parameter'}), 400
+
     result = delete_user_from_db(user_id)
     if 'error' in result:
         return jsonify(result), 400
@@ -121,4 +133,4 @@ def delete_user(user_id):
 
 
 if __name__ == '__main__':
-    app.run(port=5002, host="0.0.0.0", debug=True)
+    app.run(port=8003, host="0.0.0.0", debug=True)
