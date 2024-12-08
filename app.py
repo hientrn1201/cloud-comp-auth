@@ -20,7 +20,7 @@ def hello_world():
     return f"Hello World!"
 
 
-@app.route('api/register', methods=['POST'])
+@app.route('/api/register', methods=['POST'])
 def register():
     data = request.get_json()
     username = data.get('username')
@@ -39,7 +39,7 @@ def register():
 # Login Route
 
 
-@app.route('api/login', methods=['POST'])
+@app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json()
     email = data.get('email')
@@ -60,7 +60,7 @@ def login():
 # Token Verification Route
 
 
-@app.route('api/verify_token', methods=['GET'])
+@app.route('/api/verify_token', methods=['GET'])
 @jwt_required()
 def verify_token():
     # Get the username (identity) from the JWT token
@@ -69,13 +69,13 @@ def verify_token():
     return jsonify({'user': user}), 200
 
 
-@app.route('api/users', methods=['GET'])
+@app.route('/api/users', methods=['GET'])
 def get_users():
     users = get_all_users()
     return jsonify(users), 200
 
 
-@app.route('api/users/<int:user_id>', methods=['GET'])
+@app.route('/api/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
     user = get_user_by_id(user_id)
     if user is None:
@@ -83,7 +83,7 @@ def get_user(user_id):
     return jsonify(user), 200
 
 
-@app.route('api/users/<int:user_id>', methods=['PUT'])
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
 def update_user(user_id):
     data = request.get_json()
     username = data.get('username')
@@ -100,7 +100,7 @@ def update_user(user_id):
     return jsonify({'message': 'User updated successfully!'}), 200
 
 
-@app.route('api/users/<int:user_id>', methods=['DELETE'])
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
     result = delete_user_from_db(user_id)
     if 'error' in result:
