@@ -6,6 +6,8 @@ from flasgger import Swagger
 from flasgger.utils import swag_from
 from config import Config
 from models import init_db, register_user, login_user, get_user_by_id, get_all_users, update_user_in_db, delete_user_from_db
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -22,6 +24,33 @@ jwt = JWTManager(app)
 
 # Initialize Swagger
 swagger = Swagger(app)
+
+
+@app.route('/api/auth/google', methods=['POST'])
+def google_login():
+    data = request.get_json()
+    token = data.get('token')
+
+    if not token:
+        return jsonify({'message': 'Token is missing'}), 400
+
+    try:
+        # Verify the token with Google
+        id_info = id_token.verify_oauth2_token(token, requests.Request(), "366999094984-7hof4rq81g82r0ahn68flnu5odgh85di.apps.googleusercontent.com")
+
+        # Extract user info
+        email = id_info.get('email')
+        name = id_info.get('name')
+
+        # Create a JWT for the user
+        access_token = create_access_token(identity={'email': email, 'name': name})
+
+        return jsonify({'authToken': access_token}), 200
+
+    except ValueError as e:
+        # Invalid token
+        return jsonify({'message': 'Invalid token'}), 401
+
 
 # Logging middleware
 
@@ -232,6 +261,7 @@ def update_user(user_id):
     if not username and not email:
         return jsonify({'message': 'No data provided to update'}), 400
 
+    # Call a function to update the user in the database
     result = update_user_in_db(user_id, username, email)
     if 'error' in result:
         return jsonify(result), 400
@@ -240,24 +270,6 @@ def update_user(user_id):
 
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
-@swag_from({
-    "parameters": [
-        {
-            "name": "user_id",
-            "in": "path",
-            "type": "integer",
-            "required": True
-        }
-    ],
-    "responses": {
-        200: {
-            "description": "User deleted successfully."
-        },
-        400: {
-            "description": "Error deleting user."
-        }
-    }
-})
 def delete_user(user_id):
     result = delete_user_from_db(user_id)
     if 'error' in result:
