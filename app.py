@@ -52,14 +52,39 @@ def google_login():
         return jsonify({'message': 'Invalid token'}), 401
 
 
+# Apply middleware to protected routes
+def check_jwt_token():
+    """Middleware to check for JWT token in Authorization header."""
+    # Skip JWT validation for google_login route
+    if request.endpoint == 'google_login':
+        return
+
+    # Retrieve token from Authorization header
+    token = request.headers.get('Authorization')
+
+    if not token:
+        return jsonify({'message': 'Token is missing'}), 403
+
+    # Ensure the token follows the "Bearer <token>" format
+    token_parts = token.split()
+    if len(token_parts) != 2 or token_parts[0] != "Bearer":
+        return jsonify({'message': 'Token is invalid'}), 403
+
+    token = token_parts[1]  # Extract the Bearer token
+
+    try:
+        # Decode and validate the JWT token using flask_jwt_extended
+        get_jwt_identity()  # Will automatically validate the token
+    except Exception as e:
+        return jsonify({'message': 'Token is invalid'}), 403
+
+
+
 # Logging middleware
-
-
 @app.before_request
 def log_request_info():
     logger.info(f"Request: {request.method} {request.url}")
     request.start_time = time.time()
-
 
 @app.after_request
 def log_response_info(response):
