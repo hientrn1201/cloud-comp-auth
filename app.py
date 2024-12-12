@@ -1,5 +1,6 @@
 import logging
 import time
+import datetime
 from flask import Flask, request, jsonify, session
 from flasgger import Swagger
 from flasgger.utils import swag_from
@@ -7,6 +8,8 @@ from config import Config
 from models import init_db, register_user, get_user_by_id, get_all_users, update_user_in_db, delete_user_from_db, get_user_by_email
 from werkzeug.exceptions import abort
 import jwt
+from google.auth.transport import requests
+from google.oauth2 import id_token
 from flask_cors import CORS
 import os
 from swagger_definitions import (
@@ -43,11 +46,31 @@ swagger = Swagger(app)
 
 # JWT Functions
 
+# Your Google Client ID here (replace with actual)
+GOOGLE_CLIENT_ID = "366999094984-7hof4rq81g82r0ahn68flnu5odgh85di.apps.googleusercontent.com"
 
-def generate_jwt(payload):
-    """Generate a JWT token."""
-    return jwt.encode(payload, app.secret_key)
+# Endpoint to verify the Google token and generate a JWT
+@app.route('/api/generate_jwt', methods=['POST'])
+def generate_jwt():
+    google_token = request.json.get("googleToken")
+    if not google_token:
+        return jsonify({"error": "No token provided"}), 400
 
+    try:
+        # Verify the token with Google's public keys
+        id_info = id_token.verify_oauth2_token(google_token, requests.Request(), GOOGLE_CLIENT_ID)
+        user_email = id_info.get("email")
+
+        # Create a JWT token for your app
+        payload = {
+            "email": user_email,
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+        }
+        jwt_token = jwt.encode(payload, app.config[app.secret_key ], algorithm)
+
+        return jsonify({"jwt": jwt_token}), 200
+    except ValueError as e:
+        return jsonify({"error": "Invalid token"}), 401
 
 def decode_jwt(jwt_token):
     """Decode a JWT token."""
