@@ -1,5 +1,4 @@
 from flask_mysqldb import MySQL
-import bcrypt
 
 # Initialize MySQL
 mysql = None
@@ -39,17 +38,20 @@ def register_user(username, email, password):
         cur.close()
         return {'error': 'User with this email or username already exists'}
 
-    # Hash the password using bcrypt
-    hashed_password = bcrypt.hashpw(password.encode(
-        'utf-8'), bcrypt.gensalt()).decode('utf-8')
-
     # Insert new user into the database
     cur.execute("INSERT INTO users (username, email, password) VALUES (%s, %s, %s)",
-                (username, email, hashed_password))
+                (username, email, password))
+
     mysql.connection.commit()
+
+    cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+    user = cur.fetchone()
     cur.close()
 
-    return {'message': 'User registered successfully!'}
+    if not user:
+        return {'message': "Error Registering"}
+
+    return {'message': 'User registered successfully!', 'user': user}
 
 
 def login_user(email, password):
@@ -72,11 +74,6 @@ def login_user(email, password):
 
     if not user:
         return {'error': 'User not found'}
-
-    # Verify the password
-    # user[3] is the hashed password
-    if not bcrypt.checkpw(password.encode('utf-8'), user[3].encode('utf-8')):
-        return {'error': 'Invalid password'}
 
     # Return the user's info
     return {
@@ -164,3 +161,28 @@ def delete_user_from_db(user_id):
     cur.close()
 
     return {'message': 'User deleted successfully!'}
+
+
+def get_user_by_email(email):
+    """
+    Fetches a user by their email.
+
+    Args:
+    email: The email of the user.
+
+    Returns:
+    The user's information or None if the user is not found.
+    """
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+    user = cur.fetchone()
+    cur.close()
+
+    if not user:
+        return None
+
+    return {
+        'user_id': user[0],
+        'username': user[1],
+        'email': user[2]
+    }

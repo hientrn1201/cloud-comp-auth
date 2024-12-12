@@ -1,13 +1,24 @@
 import logging
 import time
-from flask import Flask, request, jsonify
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask import Flask, request, jsonify, session
 from flasgger import Swagger
 from flasgger.utils import swag_from
 from config import Config
-from models import init_db, register_user, login_user, get_user_by_id, get_all_users, update_user_in_db, delete_user_from_db
-from google.oauth2 import id_token
-from google.auth.transport import requests
+from models import init_db, register_user, get_user_by_id, get_all_users, update_user_in_db, delete_user_from_db, get_user_by_email
+from werkzeug.exceptions import abort
+import jwt
+from flask_cors import CORS
+import os
+from swagger_definitions import (
+    user_registration,
+    jwt_generation,
+    logout_response,
+    token_verification,
+    user_list_response,
+    user_retrieval,
+    user_update,
+    user_deletion
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -16,75 +27,155 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config.from_object(Config)
 
+CORS(app)
+app.config['Access-Control-Allow-Origin'] = '*'
+app.config["Access-Control-Allow-Headers"] = "Content-Type"
+
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+app.secret_key = os.getenv("SECRET_KEY")
+algorithm = os.getenv("ALGORITHM", "HS256")
+
 # Initialize the database
 init_db(app)
-
-# Initialize JWT Manager
-jwt = JWTManager(app)
 
 # Initialize Swagger
 swagger = Swagger(app)
 
+# JWT Functions
 
-@app.route('/api/auth/google', methods=['POST'])
-def google_login():
+
+def generate_jwt(payload):
+    """Generate a JWT token."""
+    return jwt.encode(payload, app.secret_key)
+
+
+def decode_jwt(jwt_token):
+    """Decode a JWT token."""
+    try:
+        return jwt.decode(jwt_token, app.secret_key)
+    except jwt.ExpiredSignatureError:
+        abort(401, "Token has expired")
+    except jwt.InvalidTokenError:
+        abort(401, "Invalid token")
+
+# Authorization Middleware
+
+
+def login_required(function):
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            abort(401, "Missing or invalid Authorization header")
+        token = auth_header.split("Bearer ")[1]
+        try:
+            decoded_token = decode_jwt(token)
+            request.user = decoded_token
+        except Exception as e:
+            abort(401, str(e))
+        return function(*args, **kwargs)
+    return wrapper
+
+# Routes
+
+
+@swag_from(user_registration)
+@app.route('/api/users/register', methods=['POST'])
+def register_user_endpoint():
+    """Register or get existing user."""
+    data = request.json
+    email = data.get("email")
+    name = data.get("name", "Anonymous")
+
+    user = get_user_by_email(email)
+    if user is None:
+        user = register_user(name, email, data.get("auth_provider", "DEFAULT"))
+    return jsonify(user), 200
+
+
+@swag_from(jwt_generation)
+@app.route('/api/generate_jwt', methods=['POST'])
+def generate_jwt_endpoint():
+    """Generate JWT for a given user."""
+    user = request.json
+    token = generate_jwt(user)
+    return jsonify({"jwt": token}), 200
+
+
+@swag_from(logout_response)
+@app.route("/logout")
+def logout():
+    session.clear()
+    return jsonify({"message": "Logged out"}), 202
+
+
+@swag_from(token_verification)
+@app.route('/api/verify_token', methods=['GET'])
+def verify_token():
+    """Verify the Authorization token."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Invalid or missing token"}), 401
+
+    token = auth_header.split("Bearer ")[1]
+    try:
+        decoded_token = decode_jwt(token)
+        return jsonify({"user_id": decoded_token.get("user_id"), "valid": True}), 200
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token has expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+
+
+@swag_from(user_list_response)
+@app.route('/api/users', methods=['GET'], endpoint='get_users')
+def get_users():
+    users = get_all_users()
+    return jsonify(users), 200
+
+
+@swag_from(user_retrieval)
+@app.route('/api/users/<int:user_id>', methods=['GET'], endpoint='get_user')
+def get_user(user_id):
+    user = get_user_by_id(user_id)
+    if not user:
+        abort(404, "User not found")
+    return jsonify(user), 200
+
+
+@swag_from(user_update)
+@app.route('/api/users/<int:user_id>', methods=['PUT'], endpoint='update_user')
+def update_user(user_id):
     data = request.get_json()
-    token = data.get('token')
+    username = data.get('username')
+    email = data.get('email')
 
-    if not token:
-        return jsonify({'message': 'Token is missing'}), 400
+    if not username and not email:
+        return jsonify({'message': 'No data provided to update'}), 400
 
-    try:
-        # Verify the token with Google
-        id_info = id_token.verify_oauth2_token(token, requests.Request(), "366999094984-7hof4rq81g82r0ahn68flnu5odgh85di.apps.googleusercontent.com")
+    result = update_user_in_db(user_id, username, email)
+    if 'error' in result:
+        return jsonify(result), 400
 
-        # Extract user info
-        email = id_info.get('email')
-        name = id_info.get('name')
-
-        # Create a JWT for the user
-        access_token = create_access_token(identity={'email': email, 'name': name})
-
-        return jsonify({'authToken': access_token}), 200
-
-    except ValueError as e:
-        # Invalid token
-        return jsonify({'message': 'Invalid token'}), 401
+    return jsonify({'message': 'User updated successfully!'}), 200
 
 
-# Apply middleware to protected routes
-def check_jwt_token():
-    """Middleware to check for JWT token in Authorization header."""
-    # Skip JWT validation for google_login route
-    if request.endpoint == 'google_login':
-        return
+@swag_from(user_deletion)
+@app.route('/api/users/<int:user_id>', methods=['DELETE'], endpoint='delete_user')
+def delete_user(user_id):
+    result = delete_user_from_db(user_id)
+    if 'error' in result:
+        return jsonify(result), 400
 
-    # Retrieve token from Authorization header
-    token = request.headers.get('Authorization')
+    return jsonify({'message': 'User deleted successfully!'}), 200
 
-    if not token:
-        return jsonify({'message': 'Token is missing'}), 403
-
-    # Ensure the token follows the "Bearer <token>" format
-    token_parts = token.split()
-    if len(token_parts) != 2 or token_parts[0] != "Bearer":
-        return jsonify({'message': 'Token is invalid'}), 403
-
-    token = token_parts[1]  # Extract the Bearer token
-
-    try:
-        # Decode and validate the JWT token using flask_jwt_extended
-        get_jwt_identity()  # Will automatically validate the token
-    except Exception as e:
-        return jsonify({'message': 'Token is invalid'}), 403
+# Logging Middleware
 
 
-
-# Logging middleware
 @app.before_request
 def log_request_info():
     logger.info(f"Request: {request.method} {request.url}")
     request.start_time = time.time()
+
 
 @app.after_request
 def log_response_info(response):
@@ -94,214 +185,5 @@ def log_response_info(response):
     return response
 
 
-@app.get('/')
-@swag_from({
-    "responses": {
-        200: {
-            "description": "Returns a simple Hello World message."
-        }
-    }
-})
-def hello_world():
-    return "Hello World!"
-
-
-@app.route('/api/register', methods=['POST'])
-@swag_from({
-    "parameters": [
-        {
-            "name": "body",
-            "in": "body",
-            "required": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "username": {"type": "string"},
-                    "email": {"type": "string"},
-                    "password": {"type": "string"}
-                },
-                "required": ["username", "email", "password"]
-            }
-        }
-    ],
-    "responses": {
-        201: {
-            "description": "User registered successfully."
-        },
-        400: {
-            "description": "Missing data or registration error."
-        }
-    }
-})
-def register():
-    data = request.get_json()
-    username = data.get('username')
-    email = data.get('email')
-    password = data.get('password')
-
-    if not username or not email or not password:
-        return jsonify({'message': 'Missing data'}), 400
-
-    result = register_user(username, email, password)
-    if 'error' in result:
-        return jsonify(result), 400
-    return jsonify(result), 201
-
-
-@app.route('/api/login', methods=['POST'])
-@swag_from({
-    "parameters": [
-        {
-            "name": "body",
-            "in": "body",
-            "required": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "email": {"type": "string"},
-                    "password": {"type": "string"}
-                },
-                "required": ["email", "password"]
-            }
-        }
-    ],
-    "responses": {
-        200: {
-            "description": "Login successful, returns access token."
-        },
-        401: {
-            "description": "Invalid credentials."
-        }
-    }
-})
-def login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-
-    if not email or not password:
-        return jsonify({'message': 'Missing email or password'}), 400
-
-    result = login_user(email, password)
-    if 'error' in result:
-        return jsonify(result), 401
-
-    access_token = create_access_token(identity=result['username'])
-    return jsonify({'access_token': access_token}), 200
-
-
-@app.route('/api/verify_token', methods=['GET'])
-@jwt_required()
-@swag_from({
-    "responses": {
-        200: {
-            "description": "Verifies the JWT token and returns user details."
-        },
-        401: {
-            "description": "Invalid or missing token."
-        }
-    }
-})
-def verify_token():
-    current_user = get_jwt_identity()
-    user = get_user_by_id(current_user)
-    return jsonify({'user': user}), 200
-
-
-@app.route('/api/users', methods=['GET'])
-@swag_from({
-    "responses": {
-        200: {
-            "description": "Returns a list of all users."
-        }
-    }
-})
-def get_users():
-    users = get_all_users()
-    return jsonify(users), 200
-
-
-@app.route('/api/users/<int:user_id>', methods=['GET'])
-@swag_from({
-    "parameters": [
-        {
-            "name": "user_id",
-            "in": "path",
-            "type": "integer",
-            "required": True
-        }
-    ],
-    "responses": {
-        200: {
-            "description": "Returns details of the user."
-        },
-        404: {
-            "description": "User not found."
-        }
-    }
-})
-def get_user(user_id):
-    user = get_user_by_id(user_id)
-    if user is None:
-        return jsonify({'message': 'User not found'}), 404
-    return jsonify(user), 200
-
-
-@app.route('/api/users/<int:user_id>', methods=['PUT'])
-@swag_from({
-    "parameters": [
-        {
-            "name": "user_id",
-            "in": "path",
-            "type": "integer",
-            "required": True
-        },
-        {
-            "name": "body",
-            "in": "body",
-            "required": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "username": {"type": "string"},
-                    "email": {"type": "string"}
-                }
-            }
-        }
-    ],
-    "responses": {
-        200: {
-            "description": "User updated successfully."
-        },
-        400: {
-            "description": "No data provided or update error."
-        }
-    }
-})
-def update_user(user_id):
-    data = request.get_json()
-    username = data.get('username')
-    email = data.get('email')
-
-    if not username and not email:
-        return jsonify({'message': 'No data provided to update'}), 400
-
-    # Call a function to update the user in the database
-    result = update_user_in_db(user_id, username, email)
-    if 'error' in result:
-        return jsonify(result), 400
-
-    return jsonify({'message': 'User updated successfully!'}), 200
-
-
-@app.route('/api/users/<int:user_id>', methods=['DELETE'])
-def delete_user(user_id):
-    result = delete_user_from_db(user_id)
-    if 'error' in result:
-        return jsonify(result), 400
-
-    return jsonify({'message': 'User deleted successfully!'}), 200
-
-
 if __name__ == '__main__':
-    app.run(port=5002, host="0.0.0.0", debug=True)
+    app.run(port=8003, host="0.0.0.0", debug=True)
