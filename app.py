@@ -9,7 +9,16 @@ from werkzeug.exceptions import abort
 import jwt
 from flask_cors import CORS
 import os
-import pathlib
+from swagger_definitions import (
+    user_registration,
+    jwt_generation,
+    logout_response,
+    token_verification,
+    user_list_response,
+    user_retrieval,
+    user_update,
+    user_deletion
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -69,39 +78,7 @@ def login_required(function):
 # Routes
 
 
-@swag_from({
-    'responses': {
-        200: {
-            'description': 'User registered successfully or retrieved existing user',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'message': {
-                        'type': 'string',
-                        'example': 'User registered successfully!'
-                    },
-                    'user': {
-                        'type': 'object',
-                        'properties': {
-                            'user_id': {'type': 'integer'},
-                            'username': {'type': 'string'},
-                            'email': {'type': 'string'}
-                        }
-                    }
-                }
-            }
-        },
-        400: {
-            'description': 'Error in registration',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'error': {'type': 'string'}
-                }
-            }
-        }
-    }
-})
+@swag_from(user_registration)
 @app.route('/api/users/register', methods=['POST'])
 def register_user_endpoint():
     """Register or get existing user."""
@@ -115,19 +92,7 @@ def register_user_endpoint():
     return jsonify(user), 200
 
 
-@swag_from({
-    'responses': {
-        200: {
-            'description': 'JWT generated successfully',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'jwt': {'type': 'string'}
-                }
-            }
-        }
-    }
-})
+@swag_from(jwt_generation)
 @app.route('/api/generate_jwt', methods=['POST'])
 def generate_jwt_endpoint():
     """Generate JWT for a given user."""
@@ -136,95 +101,40 @@ def generate_jwt_endpoint():
     return jsonify({"jwt": token}), 200
 
 
-@swag_from({
-    'responses': {
-        202: {
-            'description': 'User logged out successfully',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'message': {'type': 'string', 'example': 'Logged out'}
-                }
-            }
-        }
-    }
-})
+@swag_from(logout_response)
 @app.route("/logout")
 def logout():
     session.clear()
     return jsonify({"message": "Logged out"}), 202
 
 
-# @app.route('/api/verify_token', methods=['GET'])
-# @login_required
-# def verify_token():
-#     user_id = request.user.get("user_id")
-#     user = get_user_by_id(user_id)
-#     if not user:
-#         abort(404, "User not found")
-#     return jsonify({"user": user}), 200
+@swag_from(token_verification)
+@app.route('/api/verify_token', methods=['GET'])
+def verify_token():
+    """Verify the Authorization token."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Invalid or missing token"}), 401
+
+    token = auth_header.split("Bearer ")[1]
+    try:
+        decoded_token = decode_jwt(token)
+        return jsonify({"user_id": decoded_token.get("user_id"), "valid": True}), 200
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token has expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
 
 
-@swag_from({
-    'responses': {
-        200: {
-            'description': 'List of users retrieved successfully',
-            'schema': {
-                'type': 'array',
-                'items': {
-                    'type': 'object',
-                    'properties': {
-                        'user_id': {'type': 'integer'},
-                        'username': {'type': 'string'},
-                        'email': {'type': 'string'}
-                    }
-                }
-            }
-        }
-    }
-})
+@swag_from(user_list_response)
 @app.route('/api/users', methods=['GET'], endpoint='get_users')
-# @login_required
 def get_users():
     users = get_all_users()
     return jsonify(users), 200
 
 
-@swag_from({
-    'parameters': [
-        {
-            'name': 'user_id',
-            'in': 'path',
-            'type': 'integer',
-            'required': True,
-            'description': 'ID of the user to retrieve'
-        }
-    ],
-    'responses': {
-        200: {
-            'description': 'User retrieved successfully',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'user_id': {'type': 'integer'},
-                    'username': {'type': 'string'},
-                    'email': {'type': 'string'}
-                }
-            }
-        },
-        404: {
-            'description': 'User not found',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'error': {'type': 'string'}
-                }
-            }
-        }
-    }
-})
+@swag_from(user_retrieval)
 @app.route('/api/users/<int:user_id>', methods=['GET'], endpoint='get_user')
-# @login_required
 def get_user(user_id):
     user = get_user_by_id(user_id)
     if not user:
@@ -232,51 +142,8 @@ def get_user(user_id):
     return jsonify(user), 200
 
 
-@swag_from({
-    'parameters': [
-        {
-            'name': 'user_id',
-            'in': 'path',
-            'type': 'integer',
-            'required': True,
-            'description': 'ID of the user to update'
-        },
-        {
-            'name': 'body',
-            'in': 'body',
-            'required': True,
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'username': {'type': 'string'},
-                    'email': {'type': 'string'}
-                }
-            }
-        }
-    ],
-    'responses': {
-        200: {
-            'description': 'User updated successfully',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'message': {'type': 'string'}
-                }
-            }
-        },
-        400: {
-            'description': 'No data provided to update',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'message': {'type': 'string'}
-                }
-            }
-        }
-    }
-})
+@swag_from(user_update)
 @app.route('/api/users/<int:user_id>', methods=['PUT'], endpoint='update_user')
-# @login_required
 def update_user(user_id):
     data = request.get_json()
     username = data.get('username')
@@ -292,39 +159,8 @@ def update_user(user_id):
     return jsonify({'message': 'User updated successfully!'}), 200
 
 
-@swag_from({
-    'parameters': [
-        {
-            'name': 'user_id',
-            'in': 'path',
-            'type': 'integer',
-            'required': True,
-            'description': 'ID of the user to delete'
-        }
-    ],
-    'responses': {
-        200: {
-            'description': 'User deleted successfully',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'message': {'type': 'string'}
-                }
-            }
-        },
-        400: {
-            'description': 'Error deleting user',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'error': {'type': 'string'}
-                }
-            }
-        }
-    }
-})
+@swag_from(user_deletion)
 @app.route('/api/users/<int:user_id>', methods=['DELETE'], endpoint='delete_user')
-# @login_required
 def delete_user(user_id):
     result = delete_user_from_db(user_id)
     if 'error' in result:
