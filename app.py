@@ -30,12 +30,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config.from_object(Config)
 
-CORS(app)
-app.config['Access-Control-Allow-Origin'] = '*'
-app.config["Access-Control-Allow-Headers"] = "Content-Type"
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-app.secret_key = os.getenv("SECRET_KEY")
+app.secret_key = os.getenv("JWT_SECRET_KEY")
 algorithm = os.getenv("ALGORITHM", "HS256")
 
 # Initialize the database
@@ -47,7 +45,7 @@ swagger = Swagger(app)
 # JWT Functions
 
 # Your Google Client ID here (replace with actual)
-GOOGLE_CLIENT_ID = "366999094984-7hof4rq81g82r0ahn68flnu5odgh85di.apps.googleusercontent.com"
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 # Endpoint to verify the Google token and generate a JWT
 @app.route('/api/generate_jwt', methods=['POST'])
@@ -66,7 +64,7 @@ def generate_jwt():
             "email": user_email,
             "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
         }
-        jwt_token = jwt.encode(payload, app.config[app.secret_key ], algorithm)
+        jwt_token = jwt.encode(payload, app.secret_key, algorithm)
 
         return jsonify({"jwt": jwt_token}), 200
     except ValueError as e:
@@ -209,4 +207,4 @@ def log_response_info(response):
 
 
 if __name__ == '__main__':
-    app.run(port=8003, host="0.0.0.0", debug=True)
+    app.run(port=5002, host="0.0.0.0", debug=True)
